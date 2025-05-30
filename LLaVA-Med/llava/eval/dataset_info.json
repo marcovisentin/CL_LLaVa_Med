@@ -1,0 +1,18 @@
+{
+    "CT": {
+        "test_annotations": "/vol/biomedic3/mv320/data/medical_vqa/modality_specific_datasets_balanced/CT/test/annotations.json",
+        "test_images": "/vol/biomedic3/mv320/data/medical_vqa/modality_specific_datasets_balanced/CT/test"
+    },
+    "MRI": {
+        "test_annotations": "/vol/biomedic3/mv320/data/medical_vqa/modality_specific_datasets_balanced/MRI/test/annotations.json",
+        "test_images": "/vol/biomedic3/mv320/data/medical_vqa/modality_specific_datasets_balanced/MRI/test"
+    },
+    "X-Ray": {
+        "test_annotations": "/vol/biomedic3/mv320/data/medical_vqa/modality_specific_datasets_balanced/X-Ray/test/annotations.json",
+        "test_images": "/vol/biomedic3/mv320/data/medical_vqa/modality_specific_datasets_balanced/X-Ray/test"
+    },
+    "Pathology": {
+        "test_annotations": "/vol/biomedic3/mv320/data/medical_vqa/modality_specific_datasets_balanced/Pathology/test/annotations.json",
+        "test_images": "/vol/biomedic3/mv320/data/medical_vqa/modality_specific_datasets_balanced/Pathology/test"
+    }
+}

@@ -1,0 +1,7 @@
+wandb/
+dataset_preparation/
+sure-vqa/
+LLaVA-Med/old_logs/
+LLaVA-Med/sequential_test_results/
+LLaVA-Med/checkpoints/
+LLaVA-Med/venv/
