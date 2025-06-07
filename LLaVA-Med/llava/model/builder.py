@@ -3,6 +3,15 @@ import torch
 from llava.model import LlavaMistralForCausalLM
 from llava.constants import DEFAULT_IMAGE_PATCH_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
 
+import warnings
+
+# Filter the specific UserWarning about unused weights from Hugging Face
+# This is placed at the global scope to take effect as early as possible.
+warnings.filterwarnings(
+    "ignore", 
+    message="Some weights of the model checkpoint at .* were not used when initializing LlavaMistralForCausalLM.*",
+    category=UserWarning
+)
 
 def load_pretrained_model(model_path, model_base, model_name, load_8bit=False, load_4bit=False, device_map="auto", device="cuda"):
 

@@ -41,46 +41,21 @@ DATASETS_SEQUENCE = [
 # Initial model to start the sequence (can be a base pretrained model or a previous checkpoint)
 INITIAL_MODEL_PATH = "microsoft/llava-med-v1.5-mistral-7b"
 
-# Base directory for all outputs of this sequential pipeline
-PIPELINE_BASE_OUTPUT_DIR = "/vol/biomedic3/mv320/projects/VLMs/MEG_x_CL/LLaVA-Med/checkpoints/binary_sequential_finetuning_pipeline"
-os.makedirs(PIPELINE_BASE_OUTPUT_DIR, exist_ok=True)
-
-# --- Continual Learning Configuration ---
-CONTINUAL_LEARNING_METHOD = "ewc"  # Options: "none", "ewc", "lwf", "si", etc.
-# This master switch can be used by the training script to enable/disable CL features for the projector
-APPLY_CL_TO_PROJECTOR = True 
-
-CL_METHOD_CONFIGS = {
-    "none": {},
-    "ewc": {
-        "lambda": 0.1, # Hyperparameter for EWC
-        "data_base_dir": os.path.join(PIPELINE_BASE_OUTPUT_DIR, "cl_data", "ewc_projector_data")
-    },
-}
-
-# Ensure data directories for active CL methods exist
-if CONTINUAL_LEARNING_METHOD != "none" and CONTINUAL_LEARNING_METHOD in CL_METHOD_CONFIGS:
-    cl_data_dir = CL_METHOD_CONFIGS[CONTINUAL_LEARNING_METHOD].get("data_base_dir")
-    if cl_data_dir:
-        os.makedirs(cl_data_dir, exist_ok=True)
-
 # Path to your training script and deepspeed config
 # Ensure these paths are correct from the directory where you run this Python script, or use absolute paths.
 DEEPSPEED_LAUNCH_SCRIPT = "/vol/biomedic3/mv320/projects/VLMs/MEG_x_CL/LLaVA-Med/llava/train/train_mem.py"
 DEEPSPEED_CONFIG_PATH = "./scripts/zero2.json" # Relative to LLaVA-Med root, or use absolute path
 
-# Common training arguments (modify as per your finetune.sh)
-# These will be used for each training stage.
-# `output_dir`, `model_name_or_path`, `data_path`, `image_folder` will be set dynamically.
+# Common training arguments 
 COMMON_TRAIN_ARGS = [
     "--version", "mistral_instruct",
     "--tune_mm_mlp_adapter", "True",
     "--bf16", "True",
-    "--num_train_epochs", "2",       # Adjust as needed for each stage
-    "--per_device_train_batch_size", "16",
-    "--per_device_eval_batch_size", "16",
+    "--num_train_epochs", "2",      
+    "--per_device_train_batch_size", "8",
+    "--per_device_eval_batch_size", "8",
     "--gradient_accumulation_steps", "1",
-    "--learning_rate", "1e-4",       # You might want to adjust LR for later stages
+    "--learning_rate", "1e-4",       
     "--weight_decay", "0.",
     "--warmup_ratio", "0.03",
     "--lr_scheduler_type", "cosine",
@@ -104,10 +79,6 @@ COMMON_TRAIN_ARGS = [
     "--eval_accumulation_steps", "1",
 ]
 #TODO: save best model not at the end of the stage, but at the end of the pipeline
-
-# W&B Project name
-WANDB_TRAIN_PROJECT = "llava-med-binary-sequential-training" 
-WANDB_EVAL_PROJECT = "llava-med-binary-sequential-evaluation"
 
 # --- Helper Function ---
 def run_deepspeed_command(command_args, stage_type, model_name_info, dataset_name_info):
@@ -154,13 +125,43 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Sequential Training Pipeline for LLaVA-Med")
     parser.add_argument("--run_all_binary_sequences", action="store_true",
                         help="Run all possible binary (A->B) sequences from DATASETS_SEQUENCE.")
+    parser.add_argument("--cl_method", type=str, default="", choices=["", "ewc", "lwf", "si"],
+                        help="Continual Learning method to use.")
 
     return parser.parse_args()
 
 # --- Main Pipeline Logic ---
 def main():
-    args = parse_args()
 
+    # Args
+    args = parse_args()
+    cl_method = args.cl_method
+    CONTINUAL_LEARNING_METHOD = cl_method
+
+    # --- Pipeline Configuration ---
+    PIPELINE_BASE_OUTPUT_DIR = "/vol/biomedic3/mv320/projects/VLMs/MEG_x_CL/LLaVA-Med/checkpoints/binary_sequential_finetuning_pipeline_" + cl_method
+    os.makedirs(PIPELINE_BASE_OUTPUT_DIR, exist_ok=True)
+    # W&B Project name
+    WANDB_TRAIN_PROJECT = cl_method + "_llava-med-binary-sequential-training" 
+    WANDB_EVAL_PROJECT = cl_method + "_llava-med-binary-sequential-evaluation"
+
+    # --- Continual Learning Configuration ---
+    CL_METHOD_CONFIGS = {
+        "": {},
+        "ewc": {
+            "lambda": 0.1, # Hyperparameter for EWC
+            "data_base_dir": os.path.join(PIPELINE_BASE_OUTPUT_DIR, "data")
+        },
+    }
+
+    # Ensure data directories for active CL methods exist
+    if CONTINUAL_LEARNING_METHOD != "" and CONTINUAL_LEARNING_METHOD in CL_METHOD_CONFIGS:
+        print(f"Continual Learning method {CONTINUAL_LEARNING_METHOD} is active. Ensuring data directories exist.")
+        cl_data_dir = CL_METHOD_CONFIGS[CONTINUAL_LEARNING_METHOD].get("data_base_dir")
+        if cl_data_dir:
+            os.makedirs(cl_data_dir, exist_ok=True)
+
+    # --- Dataset Configuration, Sequence Generation ---
     all_dataset_configs_master_list = DATASETS_SEQUENCE
     dataset_name_to_config_map = {d["name"]: d for d in all_dataset_configs_master_list}
     all_dataset_names_master_list = [d["name"] for d in all_dataset_configs_master_list]
@@ -188,7 +189,7 @@ def main():
         print("No specific sequence generation flag, --run_all_binary_sequences, provided. Running default sequence based on the order in DATASETS_SEQUENCE ({len(all_dataset_configs_master_list)} stages).")
         raise ValueError("No specific sequence generation flag provided. Exiting.")
 
-    # --- Loop over each sequence defined (could be one or many if --run_all_binary_sequences) ---
+    # --- Loop over each sequence defined 
     total_sequences = len(sequences_to_run)
     for seq_idx, seq_info in enumerate(sequences_to_run):
         current_sequence_name_slug = seq_info["name_slug"]
@@ -231,7 +232,7 @@ def main():
             ] + COMMON_TRAIN_ARGS
             
             cl_method_specific_args = {}
-            if CONTINUAL_LEARNING_METHOD != "none" and APPLY_CL_TO_PROJECTOR:
+            if CONTINUAL_LEARNING_METHOD != "" and CONTINUAL_LEARNING_METHOD in CL_METHOD_CONFIGS:
                 train_args_for_stage.extend(["--continual_learning_method", CONTINUAL_LEARNING_METHOD])
                 train_args_for_stage.extend(["--apply_cl_to_projector", "True"])
 
@@ -269,6 +270,15 @@ def main():
                          print(f"CL ({CONTINUAL_LEARNING_METHOD.upper()}): Not a binary sequence or not enabled for this setup. CL method-specific logic for EWC might not apply as intended.")
                 # --- End EWC Specific Orchestration ---
 
+                
+                # --- LoRA Specific Orchestration ---
+                if CONTINUAL_LEARNING_METHOD == "lora":
+                    if i > 0: # If not the first task in a sequence
+                        cl_method_specific_args['apply_lora_weights_projector'] = True
+                        cl_method_specific_args['lora_alpha'] = CL_METHOD_CONFIGS['lora']['alpha']
+                        cl_method_specific_args['lora_temperature'] = CL_METHOD_CONFIGS['lora']['temperature']
+                # --- End LoRA Specific Orchestration ---
+                
                 # --- Add other CL method orchestrations here as elif CONTINUAL_LEARNING_METHOD == "method_name": ---
                 # Example for LwF (conceptual):
                 # elif CONTINUAL_LEARNING_METHOD == "lwf":

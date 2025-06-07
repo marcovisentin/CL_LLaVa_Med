@@ -119,7 +119,7 @@ class TrainingArguments(transformers.TrainingArguments):
     wandb_project: str = field(default="llava-med-sequential-baseline")
     
     # CL args
-    continual_learning_method: str = field(default="none")
+    continual_learning_method: str = field(default="")
     apply_cl_to_projector: bool = field(default=False)
     cl_method_specific_args_json: str = field(default="{}")
 
@@ -419,7 +419,7 @@ class LazySupervisedDataset(Dataset):
 
         start_idx = int(len(list_data_dict)*split[0])
         end_idx = int(len(list_data_dict)*split[1])
-        self.list_data_dict = list_data_dict[start_idx:end_idx]
+        self.list_data_dict = list_data_dict[:50] #TODO: remove
         print(f"Loaded {len(self.list_data_dict)} samples from {data_path}")
 
         self.data_args = data_args
@@ -700,17 +700,6 @@ def train(attn_implementation=None):
 
     # if training_args.bits in [4, 8]:
         # model.get_model().mm_projector.to(dtype=compute_dtype, device=training_args.device)
-
-    # Get the first parameter and remember which one it is
-    first_param_iterator = model.parameters()
-    first_param = next(first_param_iterator)
-    first_param_name = None
-
-    # Find the name of this parameter for reference
-    for name, param in model.named_parameters():
-        if param is first_param:
-            first_param_name = name
-            break
 
     # Check vision weights and projector are same as in checkpoint in HF that I locally downloaded 
     #verify_mm_weights(model, "/vol/biomedic3/mv320/projects/VLMs/MEG_x_CL/LLaVA-Med/checkpoints/llava-med/model-00003-of-00004.safetensors", overwrite_weights=True)

@@ -12,7 +12,10 @@ from transformers.trainer import (
     ALL_LAYERNORM_LAYERS,
     logger,
 )
-from typing import List, Optional
+from typing import List, Optional, Dict, Any # Added Dict, Any
+import json # Added
+
+from .cl_strategies import EWCStrategy # Added
 
 
 def maybe_zero_3(param, ignore_status=False, name=None):
@@ -131,6 +134,70 @@ class LengthGroupedSampler(Sampler):
 
 
 class LLaVATrainer(Trainer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cl_strategy = None
+        if hasattr(self.args, 'continual_learning_method'):
+            if self.args.continual_learning_method == "ewc":
+                print("Initializing EWC Strategy for Continual Learning.")
+                cl_specific_args_str = getattr(self.args, 'cl_method_specific_args_json', "{}")
+                try:
+                    cl_specific_args = json.loads(cl_specific_args_str) #TODO: why not passing the dict directly?
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"Invalid JSON string for cl_method_specific_args_json: {cl_specific_args_str}. Error: {e}")
+
+                # EWCStrategy will internally handle projector logic based on training_args
+                self.cl_strategy = EWCStrategy(
+                    model=self.model,
+                    training_args=self.args, # Pass training_args
+                    cl_specific_args=cl_specific_args
+                )
+                print(f"EWCStrategy initialized. It will use training_args to determine projector application if configured.")
+            elif self.args.continual_learning_method == "":
+                print("No CL strategy will be initialized.")
+            else:
+                raise ValueError(f"Continual Learning method {self.args.continual_learning_method} is not supported.")
+
+    def compute_loss(self, model, inputs, return_outputs=False):
+        # Forward pass
+        outputs = model(**inputs)
+        # Compute custom loss
+        loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+
+        if self.cl_strategy is not None and \
+           hasattr(self.args, 'continual_learning_method') and self.args.continual_learning_method == "ewc":
+            # EWCStrategy's compute_cl_penalty will internally check if it should apply the penalty
+            # (e.g., based on apply_projector_ewc_penalty flag in its cl_specific_args)
+            loss = self.cl_strategy.compute_cl_penalty(loss)
+        
+        return (loss, outputs) if return_outputs else loss
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        # Call the superclass's on_train_begin first
+        super().on_train_begin(args, state, control, **kwargs)
+
+        # Then, call on_train_begin for the CL strategy if it exists and has the method
+        if self.cl_strategy is not None and hasattr(self.cl_strategy, 'on_train_begin'):
+            print("LLaVATrainer: Calling on_train_begin for the CL strategy.")
+            self.cl_strategy.on_train_begin()
+
+    def train(self, *args, **kwargs):
+        # Call the original train method
+        result = super().train(*args, **kwargs)
+
+        # After training is complete, call on_train_end for the CL strategy
+        if self.cl_strategy is not None and \
+           hasattr(self.args, 'continual_learning_method') and self.args.continual_learning_method == "ewc":
+            # EWCStrategy's on_train_end will internally check if it should save Fisher info
+            # (e.g., based on save_projector_fisher_after_training flag in its cl_specific_args)
+            print("EWCStrategy: Calling on_train_end actions after super().train() completes.")
+            if self.train_dataset is not None:
+                train_dataloader = self.get_train_dataloader()
+                self.cl_strategy.on_train_end(train_dataloader)
+            else:
+                print("EWCStrategy: train_dataset is None, cannot compute Fisher information for on_train_end.")
+        return result
+
 
     def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
         if self.train_dataset is None or not has_length(self.train_dataset):

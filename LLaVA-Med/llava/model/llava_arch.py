@@ -117,6 +117,22 @@ class LlavaMetaForCausalLM(ABC):
 
     def encode_images(self, images):
         image_features = self.get_model().get_vision_tower()(images)
+        
+        # Ensure image_features are the same dtype as the mm_projector expects.
+        # This is crucial when using mixed precision (e.g., bf16) for the projector
+        # while the vision tower might output float32.
+        # Assuming mm_projector is a Sequential module and its first layer's weights 
+        # define the target dtype, as suggested by model parameter names like 'model.mm_projector.0.weight'.
+        if self.get_model().mm_projector is not None and \
+           hasattr(self.get_model().mm_projector, '__len__') and len(self.get_model().mm_projector) > 0 and \
+           hasattr(self.get_model().mm_projector[0], 'weight'):
+            projector_dtype = self.get_model().mm_projector[0].weight.dtype
+            if image_features.dtype != projector_dtype:
+                # print(f"DEBUG: Casting image_features from {image_features.dtype} to {projector_dtype} for mm_projector in encode_images.") # Optional: for verbose debugging
+                image_features = image_features.to(dtype=projector_dtype)
+        # Else, if projector structure is different or mm_projector is None, proceed with original image_features dtype.
+        # This might lead to errors if dtypes mismatch and projector is present but not in expected structure.
+        
         image_features = self.get_model().mm_projector(image_features)
         return image_features
 
